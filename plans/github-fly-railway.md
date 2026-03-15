@@ -29,6 +29,27 @@ Managed "daemon" without managing a raw VPS.
 - **Pros:** No VPS SSH; managed runtime; scales with the platform.
 - **Cons:** Need to implement "apply API response to repo" (patch or file edits); cold starts and resource limits per plan.
 
+## What You Build
+
+**Orchestrator** (loop in app), **PM / Dev / QA** as logic that calls HTTP coding API and uses GitHub API. Repo layout in the app: clone (or API-only); `orchestrator/` + `prompts/` as code; apply API responses (diffs/edits) via Git or GitHub API. GitHub: labels `proposed`, `approved`, `qa-done`; branch protection; `GITHUB_TOKEN` and `CODEX_API_KEY` in platform secrets.
+
+## Implementation Phases
+
+| Phase | What to do |
+|-------|------------|
+| 1. GitHub client | Same; use from app with token from secrets. |
+| 2. Config | Repo owner/name, token, API key; poll interval. |
+| 3. PM agent | Build prompt from repo context; call HTTP API; create issues with `proposed`. |
+| 4. Dev agent | Fetch approved issue; call API with "implement this" + context; apply response (patch or file ops); commit and push; open PR. |
+| 5. QA agent | Get PR diff; call API for review; post comments via GitHub API; add `qa-done`. |
+| 6. Orchestrator loop | Poll GitHub; run PM → Dev → QA; sleep. |
+| 7. Safety | Branch protection; apply changes in isolated clone or sandbox. |
+
+## Checklist Before Going "Live"
+
+- [ ] Secrets on Fly/Railway; labels and branch protection on GitHub.
+- [ ] App applies API output to repo without merging.
+
 ## Done when
 
 - The app runs on Fly or Railway, polls GitHub, runs PM/Dev/QA using an HTTP coding API, and you approve issues and merge PRs from GitHub.
