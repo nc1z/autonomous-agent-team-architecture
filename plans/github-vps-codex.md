@@ -31,6 +31,35 @@ Full control; Codex runs in containers or on host. 24/7 operation.
 - Token only in env or secret manager; never in repo.
 - Prefer running Codex in a container so agent code runs in a sandbox.
 
+## What You Build
+
+| Component | Responsibility |
+|-----------|-----------------|
+| **Orchestrator** | Loop: poll GitHub every N minutes → run PM → run Dev → run QA → sleep. Tracks "in progress" to avoid duplicate work. |
+| **PM agent** | Propose features; create GitHub issues with label `proposed`. |
+| **Dev agent** | Implement approved issues → branch, Codex, push, open PR. |
+| **QA agent** | Review open PRs; post comments; add label when done. |
+
+Repo layout: `orchestrator/` (orchestrator.py, pm_agent.py, dev_agent.py, qa_agent.py, github_client.py, config.py), `prompts/` (pm.md, dev.md, qa.md). GitHub setup: labels `proposed`, `approved`, `in-progress`, `qa-done`; branch protection on main; token in env.
+
+## Implementation Phases
+
+| Phase | What to do |
+|-------|------------|
+| 1. GitHub client | List issues by label, create issue/branch/PR, post review comments, add/remove labels. |
+| 2. Config | Repo path, `GITHUB_TOKEN`, poll interval, owner/name. |
+| 3. PM agent | Read repo context; call Codex; create issues with label `proposed`. |
+| 4. Dev agent | Pick approved issue; branch; Codex; commit and push; open PR. |
+| 5. QA agent | Get PR diff; Codex review; post comments; add `qa-done`. |
+| 6. Orchestrator loop | PM → Dev → QA → sleep; prevent same issue picked twice. |
+| 7. Safety | Codex in Docker; branch protection; CI gate. |
+
+## Checklist Before Going "Live"
+
+- [ ] Token in env on VPS; never in repo.
+- [ ] Labels and branch protection configured.
+- [ ] Orchestrator runs as systemd/supervisor; restarts on failure.
+
 ## Done when
 
 - Orchestrator runs 24/7 on the VPS; PM/Dev/QA agents use GitHub and Codex; you approve issues and merge PRs from anywhere.
