@@ -189,12 +189,15 @@ flowchart TB
 | Option | Pros | Cons |
 |--------|------|------|
 | **Persistent daemon (VPS / server)** | Full control, 24/7, parallel agents, simple mental model. | You operate the server. |
+| **Persistent daemon (local machine, e.g. laptop)** | Same as above; no extra host to pay for or maintain. Agents run while the machine is on. | Only runs when the laptop is on and awake (or you use wake/sleep policies). |
 | **Scheduled CI (e.g. cron-style jobs)** | No server to maintain, event-driven. | Less flexible than a daemon; job limits and timeouts. |
 | **Hybrid** | Critical loops on daemon, heavy/rare jobs on CI. | Two systems to configure. |
 
+Running the orchestrator on your **laptop** works the same way as a VPS: run the daemon (e.g. `python orchestrator.py` or `docker compose up`), keep the machine on (or use “prevent sleep” when you want it active), and it will poll the repo and run agents. Good for personal projects or overnight runs.
+
 ```mermaid
 flowchart LR
-    subgraph OptionA["Daemon (VPS)"]
+    subgraph OptionA["Daemon (VPS or local)"]
         D1["Orchestrator"]
         D2["Poll repo"]
         D3["Run agents"]
@@ -220,7 +223,7 @@ flowchart LR
 6. **Gates** — You approve issues and merge PRs; agents never merge.
 7. **Safety** — Branch protection, CI, optional size limits, sandboxed runs.
 
-The document above is **tool-agnostic**: it applies to any event backend (e.g. GitHub, GitLab), any runner (VPS, Kubernetes, serverless), and any LLM-based coding engine.
+The document above is **tool-agnostic**: it applies to any event backend (e.g. GitHub, GitLab), any runner (VPS, local machine, Kubernetes, serverless), and any LLM-based coding engine.
 
 ---
 
@@ -231,6 +234,7 @@ This section lists **example** ways to implement the architecture; the rest of t
 | Approach | Event system | Runner | LLM worker | Notes |
 |----------|--------------|--------|------------|--------|
 | **GitHub + VPS + Codex CLI** | GitHub (issues, PRs) | Python/Node daemon on VPS | OpenAI Codex CLI | Full control; Codex runs in containers or on host. |
+| **GitHub + local laptop + Codex CLI** | GitHub (issues, PRs) | Same daemon on your machine | OpenAI Codex CLI | Same as VPS; runs whenever the laptop is on (e.g. overnight). |
 | **GitHub Actions only** | GitHub | Actions on `schedule` + `issues` / `pull_request` | Codex API or another API | No VPS; constrained by Actions limits and timeouts. |
 | **GitHub + Fly.io / Railway** | GitHub | Small app on Fly/Railway | Any HTTP/CLI coding API | Managed “daemon” without managing a raw VPS. |
 | **GitLab + self-hosted runner** | GitLab (issues, MRs) | GitLab CI + runner | Any CLI/API | Same idea as GitHub + Actions, with GitLab semantics. |
