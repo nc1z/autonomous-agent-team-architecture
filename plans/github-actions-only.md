@@ -30,6 +30,27 @@ No VPS or laptop daemon; constrained by Actions limits and timeouts.
 - **Concurrency:** Avoid multiple jobs fighting over the same issue (e.g. use "claim" via label `in-progress` and only one scheduled job per cycle).
 - **Secrets:** No persistent disk; only GitHub and API calls.
 
+## What You Build
+
+Same components as other plans: **Orchestrator** (script or job sequence), **PM / Dev / QA agents** (each as a job or script step). Repo: `orchestrator/` + `prompts/`; use Codex API (not CLI) from workflow. GitHub: labels `proposed`, `approved`, `in-progress`, `qa-done`; branch protection; secrets for `CODEX_API_KEY`.
+
+## Implementation Phases
+
+| Phase | What to do |
+|-------|------------|
+| 1. GitHub client | Same as other plans; use `GITHUB_TOKEN` from workflow. |
+| 2. Config | Repo from checkout; token from secrets; interval via schedule. |
+| 3. PM agent | Job: checkout, call Codex API, create issues with `proposed`. |
+| 4. Dev agent | Job: list approved issues, claim one (e.g. label `in-progress`), call Codex API, push branch, open PR. |
+| 5. QA agent | Job: list open PRs, get diff, call Codex API, post review; add `qa-done`. |
+| 6. Orchestrator | One scheduled workflow that runs PM then Dev then QA, or separate workflows triggered by schedule/events. |
+| 7. Safety | Branch protection; CI required; no merge by workflow. |
+
+## Checklist Before Going "Live"
+
+- [ ] Secrets set (CODEX_API_KEY); labels and branch protection on.
+- [ ] Concurrency: only one job per "cycle" or use `in-progress` to avoid duplicate work.
+
 ## Done when
 
 - Scheduled workflow(s) propose issues (PM), open PRs for approved issues (Dev), and review PRs (QA); you approve issues and merge PRs; no VPS or local daemon.
