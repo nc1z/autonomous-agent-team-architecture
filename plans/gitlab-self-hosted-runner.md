@@ -32,6 +32,27 @@ Same idea as GitHub + Actions, with GitLab semantics (MRs instead of PRs, GitLab
 - **MR = PR:** Create MR from branch; get diff; post "merge request notes" or use the review API if available.
 - **Pipeline triggers:** Schedules and MR/issue events; no "issue labeled" webhook in the same way — use schedule + "list issues with label approved" or GitLab triggers.
 
+## What You Build
+
+**Orchestrator** (pipeline stages or script), **PM / Dev / QA** using GitLab API (issues, MRs, notes). Repo: script or app in repo; `prompts/`; Codex CLI or API on runner. GitLab: labels `proposed`, `approved`, `qa-done`; protect default branch; `GITLAB_TOKEN` and `CODEX_API_KEY` in CI variables.
+
+## Implementation Phases
+
+| Phase | What to do |
+|-------|------------|
+| 1. GitLab client | List issues by label, create issue, create branch, create MR, get diff, post MR notes (review). |
+| 2. Config | Repo path from CI; token and API key from variables; schedule interval. |
+| 3. PM agent | Job: read repo context; call Codex; create issues with `proposed`. |
+| 4. Dev agent | Job: list approved issues; pick one; branch; Codex; push; open MR. |
+| 5. QA agent | Job: list open MRs; get diff; Codex review; post notes; add `qa-done`. |
+| 6. Orchestrator | Schedule runs PM → Dev → QA; or separate jobs by trigger. |
+| 7. Safety | Branch protection; CI gate; Codex in Docker on runner if desired. |
+
+## Checklist Before Going "Live"
+
+- [ ] CI variables set; labels and protected branch on GitLab.
+- [ ] Runner has Codex CLI or can call API.
+
 ## Done when
 
 - Scheduled pipelines (and optionally MR-triggered QA) run PM/Dev/QA against GitLab issues and MRs; you approve issues and merge MRs; runner has access to Codex CLI or API.
