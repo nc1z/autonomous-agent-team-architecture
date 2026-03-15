@@ -1,6 +1,6 @@
 # Plan: GitHub + local laptop + Codex CLI
 
-How to run an **autonomous agent fleet with gated approvals** on your laptop. Architecture is in [ARCHITECT.md](../ARCHITECT.md).
+How to run an **autonomous agent fleet with gated approvals** on your laptop. Architecture is in [README.md](../README.md).
 
 ---
 
