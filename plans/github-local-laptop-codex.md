@@ -153,5 +153,3 @@ The prompt file can include placeholders (e.g. issue number) that the orchestrat
 | 3 | Implement PM → Dev → QA agents (each calling Codex); then orchestrator loop. |
 | 4 | Configure GitHub (labels, branch protection); run `python orchestrator/orchestrator.py` on your laptop. |
 | 5 | Approve issues and merge PRs; let the fleet run when the laptop is on. |
-
-For architecture and safety details, see [ARCHITECT.md](../ARCHITECT.md).
