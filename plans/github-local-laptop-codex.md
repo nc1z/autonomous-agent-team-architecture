@@ -1,6 +1,17 @@
-# Plan: GitHub + local laptop + Codex CLI
+# Plan: GitHub + local laptop + Codex App
 
-How to run an **autonomous agent fleet with gated approvals** on your laptop. Architecture is in [README.md](../README.md).
+How to run an **autonomous agent fleet with gated approvals** on your laptop using the **Codex App**. Architecture is in [README.md](../README.md).
+
+---
+
+## Why the Codex App
+
+The [Codex App](https://developers.openai.com/codex/app) is the main surface for this setup:
+
+- **[Automations](https://developers.openai.com/codex/app/automations/)** — Schedule recurring tasks (e.g. “run one PM → Dev → QA round”). Runs happen in the background; findings show up in the **Triage** inbox. You can combine automations with [skills](https://developers.openai.com/codex/skills) (`$skill-name`).
+- **[Worktrees](https://developers.openai.com/codex/app/worktrees)** — For Git repos, automations can run on a **dedicated worktree** so background work doesn’t touch your local checkout. You can also start threads on a worktree manually and use **Handoff** to move work between Local and Worktree.
+
+The App must be running and the project available on disk. No custom daemon or GitHub API client—Codex uses the **`gh` CLI** in the shell for all GitHub actions.
 
 ---
 
@@ -9,10 +20,11 @@ How to run an **autonomous agent fleet with gated approvals** on your laptop. Ar
 | Layer | Choice |
 |-------|--------|
 | Event system | GitHub (issues, PRs, comments) |
-| Runner | Daemon on your laptop |
-| LLM worker | OpenAI Codex CLI |
+| Runner | **Codex App** — Automations (scheduled) + Worktrees (isolation) |
+| LLM worker | OpenAI Codex |
+| GitHub access | **`gh` CLI** — Codex runs `gh` and `git` in the shell |
 
-You run one orchestrator process locally; it polls GitHub and runs PM, Dev, and QA agents. You approve issues and merge PRs. Agents run whenever the laptop is on (e.g. overnight).
+You open the repo as a project in the Codex App, add one or more **Automations** with a schedule and a prompt (or skill) that runs the PM → Dev → QA flow using `gh`. Automations run on a **worktree** so they don’t modify your local branch. You approve issues and merge PRs; the fleet runs whenever the App is running (e.g. overnight).
 
 ---
 
@@ -20,13 +32,12 @@ You run one orchestrator process locally; it polls GitHub and runs PM, Dev, and 
 
 Before building:
 
-1. **GitHub repo** — The repo you want the fleet to work on. Needs Issues and Pull Requests enabled.
-2. **Codex CLI** — Installed and working (`codex` on PATH). You need the CLI (or API), not only the desktop app, so agents can run headless.
-3. **Git** — Clone of the repo on your machine; orchestrator will run commands in that clone.
-4. **Python 3** (or Node) — To implement the orchestrator and agent scripts. This plan assumes Python; adapt if you use Node.
-5. **GitHub token** — Fine-grained or classic PAT with `repo` (issues, PRs, contents, commit statuses). Store as `GITHUB_TOKEN` env var or in a config file the daemon can read.
+1. **GitHub repo** — The repo you want the fleet to work on. Issues and Pull Requests enabled.
+2. **Codex App** — Installed and running. The project must be **on disk** and **added as a project** in the App (e.g. open the folder / clone into a path the App can see).
+3. **Git** — Clone of the repo on your machine (the App uses this clone; automations use worktrees created from it).
+4. **`gh` CLI** — Installed and authenticated (`gh auth login`). Codex will run `gh issue list`, `gh pr list`, `gh pr create`, `git pull`/`git push`, etc., in the shell. Ensure the account has `repo` (or fine-grained equivalent).
 
-Optional but recommended: **Docker** (to run Codex/agents in a sandbox); **prevent sleep** so the laptop stays awake when you want the fleet running (e.g. overnight).
+Optional: **prevent sleep** when you want the fleet running (e.g. overnight); **sandbox settings** in the App (Settings) so automations have the right permissions (e.g. workspace-write for file changes and network for `gh`/push).
 
 ---
 
@@ -34,74 +45,85 @@ Optional but recommended: **Docker** (to run Codex/agents in a sandbox); **preve
 
 | Component | Responsibility |
 |-----------|-----------------|
-| **Orchestrator** | Loop: poll GitHub every N minutes → run PM → run Dev agents → run QA → sleep. Tracks "in progress" to avoid duplicate work. |
-| **PM agent** | Read repo context (README, roadmap); call Codex to propose features; create GitHub issues with label `proposed`. |
-| **Dev agent** | Find issues with label `approved` and open; for each (or one): create branch, run Codex to implement, push, open PR. |
-| **QA agent** | Find open PRs (e.g. without "QA done" label); run Codex to review diff; post review comments; add label when done. |
+| **Prompts or skills** | Define the PM/Dev/QA workflow; instruct Codex to use `gh` (and `git`) for all GitHub and version-control actions. |
+| **Automations** | In the Codex App: create one or more automations for this project. Set **schedule** and **prompt** (or `$skill-name`). Choose **worktree** so runs don’t touch your Local checkout. |
+| **PM** | Codex reads README/roadmap; proposes features; runs `gh issue create` with label `proposed`. |
+| **Dev** | Codex runs `gh issue list --label approved`, picks one; creates branch in worktree, implements, `git push`, `gh pr create`. |
+| **QA** | Codex runs `gh pr list`, gets diff (`gh pr diff`), reviews; `gh pr comment` or `gh pr review`; adds label `qa-done` when done. |
 
-Prompts for each agent live in `prompts/` (e.g. `pm.md`, `dev.md`, `qa.md`). The orchestrator or each agent script invokes Codex CLI with the right prompt and context.
+All GitHub interaction is **Codex calling `gh`** in the shell—no separate API client.
 
 ```mermaid
 flowchart LR
-    subgraph Laptop["Your laptop"]
-        Orch["orchestrator.py"]
-        PM["pm_agent.py"]
-        Dev["dev_agent.py"]
-        QA["qa_agent.py"]
+    subgraph App["Codex App"]
+        Auto["Automations"]
+        Codex["Codex (PM / Dev / QA)"]
+        WT["Worktree"]
+    end
+    subgraph Shell["Shell"]
+        gh["gh, git"]
     end
     subgraph GitHub["GitHub"]
         Issues
         PRs
     end
-    Orch --> PM --> Issues
-    Orch --> Dev --> PRs
-    Orch --> QA --> PRs
-    Issues --> Orch
-    PRs --> Orch
+    Auto --> Codex
+    Codex --> WT
+    Codex --> gh
+    gh --> Issues
+    gh --> PRs
+    Issues --> Codex
+    PRs --> Codex
 ```
 
 ---
 
 ## Repo Layout (Target)
 
+Keep prompts and skills in the repo so they’re versioned and shareable:
+
 ```
 repo/
-├── orchestrator/
-│   ├── orchestrator.py    # Main loop: poll, dispatch, sleep
-│   ├── pm_agent.py        # Propose issues
-│   ├── dev_agent.py       # Implement approved issue → PR
-│   ├── qa_agent.py        # Review PR, post comments
-│   ├── github_client.py   # Thin wrapper: list/create issues, PRs, comments, labels
-│   └── config.py          # Poll interval, repo path, token env var name
 ├── prompts/
-│   ├── pm.md
-│   ├── dev.md
-│   └── qa.md
+│   ├── pm.md       # e.g. "Use gh to create issues with label proposed..."
+│   ├── dev.md      # e.g. "Use gh issue list --label approved; implement one; gh pr create"
+│   └── qa.md       # e.g. "Use gh pr list; review; gh pr review / gh pr comment"
+├── skills/         # optional: e.g. $pm-round, $dev-round, $qa-round (Codex can load from repo)
 ├── plans/
 ├── ARCHITECT.md
 └── README.md
 ```
 
-Optional: `docker/` with a Dockerfile so Codex runs inside a container; orchestrator still runs on the host and triggers `docker run ... codex ...`.
+In the App, **open this repo as the project**. Automations reference the same project; when they run on a worktree, Codex creates a worktree from your clone (under `$CODEX_HOME/worktrees`) and runs there.
 
 ---
 
 ## GitHub Setup
 
-1. **Labels** — `proposed` (PM created; awaiting your approval); `approved` (Dev agents may pick up); `in-progress` (optional); `qa-done` (optional).
+1. **Labels** — `proposed` (PM created; awaiting your approval); `approved` (Dev may pick up); `in-progress` (optional); `qa-done` (optional).
 2. **Branch protection (main)** — Require a PR to merge; require status checks (CI) if you have it; do not allow the bot/user that pushes from the laptop to bypass.
-3. **Token** — Create a PAT; give it to the orchestrator via `GITHUB_TOKEN` or config. Never commit the token.
+3. **Auth** — `gh auth login` (or `GITHUB_TOKEN` for `gh`). Never commit tokens.
 
 ---
 
-## How the Daemon Runs Locally
+## How It Runs
 
-1. **Clone the repo** (if not already): `git clone https://github.com/<you>/<repo>.git` then `cd <repo>`.
-2. **Install deps:** `pip install -r orchestrator/requirements.txt` (include at least PyGithub or httpx for GitHub API).
-3. **Set token:** `export GITHUB_TOKEN=ghp_...`
-4. **Run the orchestrator** from repo root: `python orchestrator/orchestrator.py`. Or with Docker: `docker compose -f docker/compose.yml up`.
-5. **Keep laptop on** when you want the fleet active (e.g. overnight). Optionally disable sleep or use `caffeinate` (macOS).
-6. **Your workflow** — PM creates issues with `proposed` → you review and add `approved` → Dev agents create PRs → QA reviews and comments → Dev fixes until QA is satisfied → you merge the PR.
+1. **Clone the repo** (if not already): `git clone https://github.com/<you>/<repo>.git` and open that folder in the **Codex App** as the project.
+2. **Authenticate `gh`**: `gh auth login` so `gh` can access the repo from the environment the App uses.
+3. **Create an Automation** in the App (sidebar → Automations):
+   - Select **this project**.
+   - Choose **Worktree** so the automation runs in a background worktree, not your Local checkout.
+   - Set **schedule** (e.g. every 6 hours or daily).
+   - Set **prompt** to run one round, e.g. “Run one PM → Dev → QA round. Use `gh` for all GitHub actions. PM: propose issues with label `proposed`. Dev: pick one `approved` issue, implement, push, open PR. QA: review open PRs and add `qa-done` when done.” Or reference a skill: “Run $pm-round then $dev-round then $qa-round.”
+4. **Keep the Codex App running** (and laptop on) when you want the fleet active (e.g. overnight). Optionally disable sleep or use `caffeinate` (macOS).
+5. **Your workflow** — PM creates issues with `proposed` → you review and add `approved` → Dev creates PRs via `gh` from the worktree → QA reviews and comments → you merge the PR. Check **Triage** in the App for automation runs with findings.
+
+---
+
+## Worktrees and cleanup
+
+- Automations that use **worktrees** don’t modify your Local branch; they run in a separate checkout under `$CODEX_HOME/worktrees`. Codex creates branches and pushes from there.
+- Frequent schedules can create many worktrees. **Archive** automation runs you don’t need and avoid **pinning** runs unless you want to keep their worktrees. See [Worktrees](https://developers.openai.com/codex/app/worktrees) and [Worktree cleanup for automations](https://developers.openai.com/codex/app/automations/).
 
 ---
 
@@ -109,38 +131,56 @@ Optional: `docker/` with a Dockerfile so Codex runs inside a container; orchestr
 
 | Phase | What to do |
 |-------|------------|
-| **1. GitHub client** | `github_client.py`: list issues by label, create issue, create branch, create PR, list PRs, post review comments, add/remove labels. Use PyGithub or REST. |
-| **2. Config** | `config.py` (or env): repo path, `GITHUB_TOKEN`, poll interval (e.g. 300s), repo owner/name. |
-| **3. PM agent** | Read README/roadmap; build prompt; call `codex run "..."` or `codex exec --prompt-file prompts/pm.md`; parse output and create issues via GitHub client; label `proposed`. |
-| **4. Dev agent** | List issues with `approved` and open; pick one; checkout new branch; run Codex with issue title/body and `prompts/dev.md`; commit and push; open PR. Optionally add `in-progress` / remove when done. |
-| **5. QA agent** | List open PRs (optionally without `qa-done`); for each, get diff; run Codex with `prompts/qa.md`; post comments via API; add `qa-done` when satisfied. |
-| **6. Orchestrator loop** | `while True`: run PM, then Dev (once or N times), then QA; `time.sleep(interval)`. Add simple locking or "in progress" state so one dev agent doesn't pick the same issue. |
-| **7. Safety** | Run Codex in Docker if possible; branch protection and CI as in ARCHITECT.md. |
+| **1. App + project + `gh`** | Install Codex App; clone repo; open repo as project in the App. Install and auth `gh`. Confirm Codex can run shell commands (e.g. in a thread: “Run `gh issue list`”) and that prompts/skills tell Codex to use `gh` and `git` for GitHub and version control. |
+| **2. PM** | Add prompt/skill: read README/roadmap; propose features; run `gh issue create --label proposed`. Test in a **thread on a worktree** (or Local) before scheduling. |
+| **3. Dev** | Prompt/skill: `gh issue list --label approved --state open`; pick one; `git fetch`/`git pull`; `git checkout -b ...`; implement; `git add`/`commit`/`push`; `gh pr create`. Optionally `gh issue edit` to add `in-progress`. Test in a thread. |
+| **4. QA** | Prompt/skill: `gh pr list`; for each (or without `qa-done`), `gh pr diff`; review; `gh pr comment` or `gh pr review`; add label `qa-done`. Test in a thread. |
+| **5. One round** | Single prompt or skill that runs PM → Dev → QA in sequence. Optionally three separate automations (PM / Dev / QA) on the same or different schedules. |
+| **6. Automation** | In the App, create an automation for this project; choose **Worktree**; set schedule and round prompt (or `$skill-name`). Confirm sandbox allows workspace write and network so `gh` and push work. |
+| **7. Safety** | Branch protection and CI as in ARCHITECT.md; prompts/skills enforce “no merge by agent”; use workspace-write (or rules) as needed, not full access, for automations. |
 
-Start with phases 1–2, then 3 (PM). Once you can approve an issue and see a PR (phase 4), add QA (5) and the loop (6).
+Start with 1–2 (PM). Once you can approve an issue and see a PR (3), add QA (4), then the round (5) and automation (6).
 
 ---
 
-## Codex CLI Usage (Reference)
+## Codex + `gh` (Reference)
+
+Codex runs `gh` and `git` in the shell. Example prompt fragments:
 
 ```bash
-# From repo root
-codex run "Implement GitHub issue #42. See issue body for acceptance criteria. Follow existing code style and add tests."
-# Or with a prompt file:
-codex exec --repo . --prompt-file prompts/dev.md
+# List approved issues
+gh issue list --label approved --state open
+
+# Create issue with label
+gh issue create --title "..." --body "..." --label proposed
+
+# Create branch, push, open PR (in worktree or local)
+git checkout -b fix/issue-42
+# ... implement ...
+git add -A && git commit -m "..." && git push -u origin fix/issue-42
+gh pr create --title "..." --body "..."
+
+# Review PR
+gh pr list
+gh pr diff <number>
+gh pr review <number> --comment -b "..."
+gh issue edit <number> --add-label qa-done
 ```
 
-The prompt file can include placeholders (e.g. issue number) that the orchestrator fills before calling Codex.
+In the App, run these via a **thread** (manual) or an **Automation** (scheduled). For automations on Git repos, use **Worktree** so the run doesn’t touch your Local checkout.
 
 ---
 
 ## Checklist Before Going "Live"
 
-- [ ] GitHub token set and not committed.
+- [ ] `gh` installed and authenticated; token not committed.
+- [ ] Repo cloned and opened as a project in the Codex App.
 - [ ] Labels `proposed` and `approved` exist; workflow for you to approve issues is clear.
 - [ ] Branch protection on default branch; you are the only one who can merge (or your policy).
-- [ ] Orchestrator runs in a terminal or as a background service; laptop stays awake when you want it (e.g. overnight).
-- [ ] Prompts (pm.md, dev.md, qa.md) enforce "no merge by agent" and reference repo conventions.
+- [ ] Automation(s) created in the App; **Worktree** selected for Git repo; schedule and prompt (or skill) set.
+- [ ] Sandbox (Settings) allows automations to write in workspace and use network for `gh`/push.
+- [ ] Codex App (and laptop) stay running when you want the fleet (e.g. overnight).
+- [ ] Prompts/skills enforce "no merge by agent" and reference repo conventions.
 
 ---
 
@@ -148,8 +188,14 @@ The prompt file can include placeholders (e.g. issue number) that the orchestrat
 
 | Step | Action |
 |------|--------|
-| 1 | Install Codex CLI; create GitHub PAT; clone repo. |
-| 2 | Add `orchestrator/` and `prompts/`; implement GitHub client + config. |
-| 3 | Implement PM → Dev → QA agents (each calling Codex); then orchestrator loop. |
-| 4 | Configure GitHub (labels, branch protection); run `python orchestrator/orchestrator.py` on your laptop. |
-| 5 | Approve issues and merge PRs; let the fleet run when the laptop is on. |
+| 1 | Install Codex App and `gh`; clone repo; open repo as project in the App; `gh auth login`. |
+| 2 | Add `prompts/` (and optional skills) that tell Codex to use `gh` for issues, PRs, pull, push, labels, comments. |
+| 3 | Implement PM → Dev → QA as prompts/skills; test in App threads (optionally on a worktree). |
+| 4 | Configure GitHub (labels, branch protection). In the App, create an automation: this project, **Worktree**, schedule, round prompt or skill. |
+| 5 | Approve issues and merge PRs; check Triage for automation findings; keep the App running when the fleet should run. |
+
+---
+
+## Optional: CLI fallback
+
+If you need headless or scripted runs (e.g. on a server without the App), you can still use the **Codex CLI** with the same prompts: `codex exec --repo . --prompt-file prompts/dev.md`. This plan is centered on the **App** (Automations + Worktrees); the CLI is an optional complement.
